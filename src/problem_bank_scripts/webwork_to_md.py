@@ -7,9 +7,11 @@ import time
 from shutil import copy2
 import sys
 
-# loop through every file in the dir
-root_path = '../../webwork-open-problem-library/Contrib/BrockPhysics/College_Physics_Urone/'
-root_dest_folder = 'source/College_Physics_Urone/'
+# Set root_path to point to webwork problem folder (ensure there is a backslash at the end of the path)
+root_path = '../../../webwork-open-problem-library/Contrib/BrockPhysics/College_Physics_Urone/'
+root_dest_folder = 'source/' + root_path.split('/')[-2] + '/'
+# Creates root_dest_folder if it doesn't exist
+Path(root_dest_folder).mkdir(parents=True, exist_ok=True)
 
 # variable declaration
 counter = 0
