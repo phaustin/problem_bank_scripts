@@ -1,0 +1,28 @@
+name: e211_students
+channels:
+  - eoas_ubc
+  - conda-forge
+  - defaults
+dependencies:
+  - git
+  - python>=3.8
+  - pyyaml>=5.4.1
+  - setuptools_scm
+  - markdown-it-py>=1.1.0
+  - pip
+  - docopt>=0.6.2
+  - sympy>=1.8
+  - mdformat>=0.7.6
+  - conda-lock
+  - jupytext
+  - jupyter-book
+  - conda-lock
+  - jupyterlab
+  - jupyterhub=1.4
+  - click
+  - mamba
+  - scipy
+  - matplotlib
+  - numpy>=1.20.3
+  - pandas
+# conda-lock --file environment.yml -p linux-64
