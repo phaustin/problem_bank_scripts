@@ -748,3 +748,270 @@ def pl_image_path(html):
               "src=\"{{options.client_files_question_url}}/\\1",res[0]) # works
 
     return res[0]
+
+
+#
+# eoas
+#
+
+def process_question_pl_parts(source_filepath, output_path = None):
+
+    try:
+        pathlib.Path(source_filepath)
+    except:
+        print(f"{source_filepath} - File does not exist.")
+        raise
+
+    path_replace = 'output/prairielearn'
+
+    if output_path is None:
+        if 'source' in source_filepath:
+            output_path = pathlib.Path(source_filepath.replace('source',path_replace)).parent
+        else:
+            raise NotImplementedError("Check the source filepath; it does not have 'source' in it!! ")
+    else:
+        ## TODO: It's annoying that here output_path.parent is used, but for md problems, it's just output_path
+        output_path = pathlib.Path(output_path).parent
+
+    # Parse the MD file
+    parsed_q = read_md_problem(source_filepath)
+    
+    
+    # Create output dir if it doesn't exist
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    #################################################################################
+    # Run the python code; this improved way was suggested by Phil Austin of UBC EOAS
+
+    server_py_path = source_filepath.parent / 'server.py'
+    with open(server_py_path,'r') as server_file:
+        server_py = server_file.read()
+    
+    #server_py = assemble_server_py(parsed_q,'local')
+
+    spec = importlib.util.spec_from_loader('server', loader=None)
+    server = importlib.util.module_from_spec(spec)
+    exec(server_py, server.__dict__)
+
+    data2 = pbh.create_data2()
+
+    server.generate(data2)
+    #################################################################################
+
+    header_path = source_filepath.parent / 'headers.yml'
+    # with open(header_path,'w') as header_file:
+    #     the_dict = yaml.dump(parsed_q,header_path)
+    
+    # Write info.json file
+    write_info_json(output_path, parsed_q)
+
+    # Question Preamble
+    if parsed_q['body_parts']['preamble']:
+        question_html = f"<pl-question-panel>\n<markdown>\n{ parsed_q['body_parts']['preamble'] }\n</markdown>\n</pl-question-panel>\n\n"
+    else:
+        question_html = f""
+
+    ## Single part questions
+    if parsed_q['num_parts'] == 1:
+        q_type = parsed_q['header']['part1']['type']
+
+        ## Add code to make sure correct answer is not shown by default (START of hide-in-panel)
+        question_html += '<pl-hide-in-panel answer="true">\n'
+        
+        if 'multiple-choice' in q_type:
+            question_html += process_multiple_choice('part1',parsed_q,data2)
+        elif 'number-input' in q_type:
+            question_html += process_number_input('part1',parsed_q,data2)
+        elif 'checkbox' in q_type:
+            question_html += process_checkbox('part1',parsed_q,data2)
+        elif 'symbolic-input' in q_type:
+            question_html += process_symbolic_input('part1',parsed_q,data2)
+        elif 'dropdown' in q_type:
+            question_html += process_dropdown('part1',parsed_q,data2)
+        elif 'longtext' in q_type:
+            question_html += process_longtext('part1',parsed_q,data2)
+        else:
+            raise NotImplementedError(f"This question type ({q_type}) is not yet implemented.")
+
+        ## Add code to make sure correct answer is not shown by default (END of hide-in-panel)
+        question_html += '</pl-hide-in-panel>\n'
+
+    ##### Multi part
+    else:
+        for pnum in range(1, parsed_q['num_parts'] + 1):
+            part = 'part'+f'{pnum}'
+            q_type = parsed_q['header'][part]['type']
+
+            ## Add code to make sure correct answer is not shown by default (START of hide-in-panel)
+            question_html += '<pl-hide-in-panel answer="true">\n'
+
+            question_html += f"""<div class="card my-2">
+<div class="card-header">{parsed_q['body_parts_split'][part]['title']}</div>\n
+<div class="card-body">\n\n"""
+
+            if 'multiple-choice' in q_type:                
+                question_html += f"{process_multiple_choice(part,parsed_q,data2)}"  
+            elif 'number-input' in q_type:
+                question_html += f"{process_number_input(part,parsed_q,data2)}"
+            elif 'checkbox' in q_type:
+                question_html += process_checkbox(part,parsed_q,data2)
+            elif 'symbolic-input' in q_type:
+                question_html += process_symbolic_input(part,parsed_q,data2)
+            elif 'dropdown' in q_type:
+                question_html += process_dropdown(part,parsed_q,data2)
+            elif 'longtext' in q_type:
+                question_html += process_longtext(part,parsed_q,data2)
+            else:
+                raise NotImplementedError(f"This question type ({q_type}) is not yet implemented.")
+
+            question_html += "</div>\n</div>\n\n\n"
+
+            ## Add code to make sure correct answer is not shown by default (END of hide-in-panel)
+            question_html += '</pl-hide-in-panel>\n'
+            
+    # Add pl-submission-panel and pl-answer-panel (if they exist)
+    subm_panel = parsed_q['body_parts_split'].get('pl-submission-panel', None)
+    q_panel = parsed_q['body_parts_split'].get('pl-answer-panel', None)
+
+    if subm_panel:
+        question_html += f"<pl-submission-panel>{ parsed_q['body_parts_split']['pl-submission-panel'] } </pl-submission-panel>\n"
+
+    if q_panel:
+        question_html += f"<pl-answer-panel>{ parsed_q['body_parts_split']['pl-answer-panel'] } </pl-answer-panel>\n"
+
+    # Add Attribution
+    question_html += f"\n<pl-question-panel>\n<markdown>\n\n---\n{process_attribution(parsed_q['header'].get('attribution'))}\n</markdown>\n</pl-question-panel>\n"
+
+    # Fix Latex underscore bug (_ being replaced with \_)
+    question_html = question_html.replace('\\_','_')
+
+    # Final pre-processing
+    question_html = pl_image_path(question_html)
+
+    # Write question.html file
+    (output_path / "question.html").write_text(question_html,encoding='utf8')
+
+    ### TODO solve the issue with the latex escape sequences, this is a workaround
+    # with open((output_path / "question.html"), "w") as qfile:
+    #     print(f"{question_html}", file=qfile)
+
+    # Write server.py file
+    write_server_py(output_path,parsed_q)
+
+    # Move image assets
+    files_to_copy = parsed_q['header'].get('assets')
+    if files_to_copy:
+        pl_path =  output_path / "clientFilesQuestion"
+        pl_path.mkdir(parents=True, exist_ok=True)
+        [copy2(pathlib.Path(source_filepath).parent / fl, pl_path / fl) for fl in files_to_copy]
+
+def read_md_problem_parts(filepath):
+    """Reads a MystMarkdown problem file and returns a dictionary of the header and body
+
+    Args:
+        filepath (str): Path of file to read.
+
+    Returns:
+        dict: In this dictionary there are three keys containing useful portions of the parsed md file: 
+            - `header` - Header of the problem file (nested dictionary).
+            - `body_parts` - Body text of the problem file (nested dictionary).
+            - `num_parts` - Number of parts in the problem (integer).
+    """
+
+    mdtext = pathlib.Path(filepath).read_text(encoding='utf8')
+
+    # Deal with YAML header
+    header_text = mdtext.rsplit('---\n')[1]
+    header = yaml.safe_load('---\n' + header_text)
+
+    # Deal with Markdown Body
+    body = mdtext.rsplit('---\n')[2]
+    
+    # Set up the markdown parser
+    # to be honest, not fully sure what's going on here, see this issue: https://github.com/executablebooks/markdown-it-py/issues/164
+
+    mdit = MarkdownIt()
+    env = {}
+
+    # Set up tokens by parsing the md file
+    tokens = mdit.parse(body, env)
+
+    blocks = {}
+
+    block_count = 0
+
+    num_titles = 0
+
+    for x,t in enumerate(tokens):
+
+        if t.tag == 'h1' and t.nesting == 1: # title
+            # oh boy. this is going to break and it will be your fault firas.
+            blocks['title'] = [x,x+3]
+            num_titles += 1
+
+        elif t.tag == 'h2' and t.nesting == 1:
+            block_count += 1
+
+            if block_count == 1:
+                blocks['block{0}'.format(block_count)] = [x,]
+            else:
+                blocks['block{0}'.format(block_count-1)].append(x)
+                blocks['block{0}'.format(block_count)] = [x,]
+
+    # Add -1 to the end of the last block
+    blocks['block{0}'.format(block_count)].append(len(tokens))
+
+    # Assert statements (turn into tests!)
+    assert num_titles == 1, "I see {0} Level 1 Headers (#) in this file, there should only be one!".format(num_titles)
+    assert block_count >= 1, "I see {0} Level 2 Headers (##) in this file, there should be at least 1".format(block_count -1)
+
+    # Add the end of the title block; # small hack
+    #blocks['title'].append(blocks['block1'][0])
+
+    # Get the preamble before the parts start
+    blocks['preamble'] = [blocks['title'][1],blocks['block1'][0]]
+
+    ## Process the blocks into markdown
+
+    body_parts = {}
+
+    part_counter = 0
+
+    for k,v in blocks.items():
+
+        rendered_part = codecs.unicode_escape_decode(MDRenderer().render(tokens[v[0]:v[1]], mdit.options, env))[0]
+        
+        if k == 'title':
+            body_parts['title'] = rendered_part
+        
+        elif k == 'preamble':
+            body_parts['preamble'] = rendered_part
+
+        elif 'Rubric' in rendered_part:
+            body_parts['Rubric'] = rendered_part
+
+        elif 'Solution' in rendered_part:
+            body_parts['Solution'] = rendered_part
+
+        elif 'Comments' in rendered_part:
+            body_parts['Comments'] = rendered_part
+
+        elif 'pl-submission-panel' in rendered_part:
+            body_parts['pl-submission-panel'] = rendered_part
+
+        elif 'pl-answer-panel' in rendered_part:
+            body_parts['pl-answer-panel'] = rendered_part
+
+        else:
+            part_counter +=1
+            body_parts[f'part{part_counter}'] = rendered_part
+
+    return_dict = {'header': header,
+            'body_parts': body_parts,
+            'num_parts': part_counter,
+            'body_parts_split': split_body_parts(part_counter,body_parts.copy()) 
+            }
+    return defdict_to_dict(return_dict,{})
+        
+
+        
