@@ -799,8 +799,8 @@ def process_question_pl_parts(source_filepath, output_path = None):
     #################################################################################
 
     header_path = source_filepath.parent / 'headers.yml'
-    # with open(header_path,'w') as header_file:
-    #     the_dict = yaml.dump(parsed_q,header_path)
+    with open(header_path,'w') as header_file:
+        the_dict = yaml.dump(parsed_q,header_file)
     
     # Write info.json file
     write_info_json(output_path, parsed_q)
