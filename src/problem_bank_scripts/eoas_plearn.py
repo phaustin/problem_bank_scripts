@@ -18,6 +18,7 @@ import re
 import codecs
 import importlib.util
 import problem_bank_helpers as pbh
+import jupytext
 
 ## Parse Markdown
 from markdown_it import MarkdownIt # pip install markdown-it-py 
@@ -774,7 +775,7 @@ def process_question_pl_parts(source_filepath, output_path = None):
         output_path = pathlib.Path(output_path).parent
 
     # Parse the MD file
-    parsed_q = read_md_problem(source_filepath)
+    parsed_q = read_md_problem_parts(source_filepath)
     
     
     # Create output dir if it doesn't exist
@@ -783,6 +784,9 @@ def process_question_pl_parts(source_filepath, output_path = None):
     #################################################################################
     # Run the python code; this improved way was suggested by Phil Austin of UBC EOAS
 
+    #
+    # eoas read from server.py
+    #
     server_py_path = source_filepath.parent / 'server.py'
     with open(server_py_path,'r') as server_file:
         server_py = server_file.read()
@@ -798,9 +802,9 @@ def process_question_pl_parts(source_filepath, output_path = None):
     server.generate(data2)
     #################################################################################
 
-    header_path = source_filepath.parent / 'headers.yml'
-    with open(header_path,'w') as header_file:
-        the_dict = yaml.dump(parsed_q,header_file)
+    # header_path = source_filepath.parent / 'headers.yml'
+    # with open(header_path,'w') as header_file:
+    #     the_dict = yaml.dump(parsed_q,header_file)
     
     # Write info.json file
     write_info_json(output_path, parsed_q)
@@ -918,94 +922,104 @@ def read_md_problem_parts(filepath):
             - `num_parts` - Number of parts in the problem (integer).
     """
 
-    mdtext = pathlib.Path(filepath).read_text(encoding='utf8')
-
-    # Deal with YAML header
-    header_text = mdtext.rsplit('---\n')[1]
-    header = yaml.safe_load('---\n' + header_text)
-
+    filepath = pathlib.Path(filepath).resolve()
+    #
+    # eoas read from headers.yml
+    #
+    the_file = filepath.parent / 'headers.yml'
+    with open(the_file,'r') as infile:
+        header = yaml.safe_load(infile)
+    #
+    # eoas read from jupytext file
+    #
     # Deal with Markdown Body
-    body = mdtext.rsplit('---\n')[2]
-    
-    # Set up the markdown parser
-    # to be honest, not fully sure what's going on here, see this issue: https://github.com/executablebooks/markdown-it-py/issues/164
+    md_file = filepath.parent / 'test_speed.md'
+    ntbk = jupytext.read(md_file)
+    body = ntbk['cells'][0]['source']
 
-    mdit = MarkdownIt()
-    env = {}
+    def construct_dict(body):
+        # Set up the markdown parser
+        # to be honest, not fully sure what's going on here, see this issue: https://github.com/executablebooks/markdown-it-py/issues/164
 
-    # Set up tokens by parsing the md file
-    tokens = mdit.parse(body, env)
+        mdit = MarkdownIt()
+        env = {}
 
-    blocks = {}
+        # Set up tokens by parsing the md file
+        tokens = mdit.parse(body, env)
 
-    block_count = 0
+        blocks = {}
 
-    num_titles = 0
+        block_count = 0
 
-    for x,t in enumerate(tokens):
+        num_titles = 0
 
-        if t.tag == 'h1' and t.nesting == 1: # title
-            # oh boy. this is going to break and it will be your fault firas.
-            blocks['title'] = [x,x+3]
-            num_titles += 1
+        for x,t in enumerate(tokens):
 
-        elif t.tag == 'h2' and t.nesting == 1:
-            block_count += 1
+            if t.tag == 'h1' and t.nesting == 1: # title
+                # oh boy. this is going to break and it will be your fault firas.
+                blocks['title'] = [x,x+3]
+                num_titles += 1
 
-            if block_count == 1:
-                blocks['block{0}'.format(block_count)] = [x,]
+            elif t.tag == 'h2' and t.nesting == 1:
+                block_count += 1
+
+                if block_count == 1:
+                    blocks['block{0}'.format(block_count)] = [x,]
+                else:
+                    blocks['block{0}'.format(block_count-1)].append(x)
+                    blocks['block{0}'.format(block_count)] = [x,]
+
+        # Add -1 to the end of the last block
+        blocks['block{0}'.format(block_count)].append(len(tokens))
+
+        # Assert statements (turn into tests!)
+        assert num_titles == 1, "I see {0} Level 1 Headers (#) in this file, there should only be one!".format(num_titles)
+        assert block_count >= 1, "I see {0} Level 2 Headers (##) in this file, there should be at least 1".format(block_count -1)
+
+        # Add the end of the title block; # small hack
+        #blocks['title'].append(blocks['block1'][0])
+
+        # Get the preamble before the parts start
+        blocks['preamble'] = [blocks['title'][1],blocks['block1'][0]]
+
+        ## Process the blocks into markdown
+
+        body_parts = {}
+
+        part_counter = 0
+
+        for k,v in blocks.items():
+
+            rendered_part = codecs.unicode_escape_decode(MDRenderer().render(tokens[v[0]:v[1]], mdit.options, env))[0]
+
+            if k == 'title':
+                body_parts['title'] = rendered_part
+
+            elif k == 'preamble':
+                body_parts['preamble'] = rendered_part
+
+            elif 'Rubric' in rendered_part:
+                body_parts['Rubric'] = rendered_part
+
+            elif 'Solution' in rendered_part:
+                body_parts['Solution'] = rendered_part
+
+            elif 'Comments' in rendered_part:
+                body_parts['Comments'] = rendered_part
+
+            elif 'pl-submission-panel' in rendered_part:
+                body_parts['pl-submission-panel'] = rendered_part
+
+            elif 'pl-answer-panel' in rendered_part:
+                body_parts['pl-answer-panel'] = rendered_part
+
             else:
-                blocks['block{0}'.format(block_count-1)].append(x)
-                blocks['block{0}'.format(block_count)] = [x,]
+                part_counter +=1
+                body_parts[f'part{part_counter}'] = rendered_part
+                
+        return body_parts, part_counter
 
-    # Add -1 to the end of the last block
-    blocks['block{0}'.format(block_count)].append(len(tokens))
-
-    # Assert statements (turn into tests!)
-    assert num_titles == 1, "I see {0} Level 1 Headers (#) in this file, there should only be one!".format(num_titles)
-    assert block_count >= 1, "I see {0} Level 2 Headers (##) in this file, there should be at least 1".format(block_count -1)
-
-    # Add the end of the title block; # small hack
-    #blocks['title'].append(blocks['block1'][0])
-
-    # Get the preamble before the parts start
-    blocks['preamble'] = [blocks['title'][1],blocks['block1'][0]]
-
-    ## Process the blocks into markdown
-
-    body_parts = {}
-
-    part_counter = 0
-
-    for k,v in blocks.items():
-
-        rendered_part = codecs.unicode_escape_decode(MDRenderer().render(tokens[v[0]:v[1]], mdit.options, env))[0]
-        
-        if k == 'title':
-            body_parts['title'] = rendered_part
-        
-        elif k == 'preamble':
-            body_parts['preamble'] = rendered_part
-
-        elif 'Rubric' in rendered_part:
-            body_parts['Rubric'] = rendered_part
-
-        elif 'Solution' in rendered_part:
-            body_parts['Solution'] = rendered_part
-
-        elif 'Comments' in rendered_part:
-            body_parts['Comments'] = rendered_part
-
-        elif 'pl-submission-panel' in rendered_part:
-            body_parts['pl-submission-panel'] = rendered_part
-
-        elif 'pl-answer-panel' in rendered_part:
-            body_parts['pl-answer-panel'] = rendered_part
-
-        else:
-            part_counter +=1
-            body_parts[f'part{part_counter}'] = rendered_part
-
+    body_parts, part_counter = construct_dict(body)
     return_dict = {'header': header,
             'body_parts': body_parts,
             'num_parts': part_counter,
