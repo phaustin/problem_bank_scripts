@@ -1,6 +1,6 @@
 from setuptools_scm import get_version
 from pathlib import Path
-root_dir = Path().resolve().parent
+root_dir = Path().resolve()
 print(f"{root_dir=}")
 code_dir= root_dir / 'src/problem_bank_scripts'
 git_version = get_version(root=str(root_dir))
