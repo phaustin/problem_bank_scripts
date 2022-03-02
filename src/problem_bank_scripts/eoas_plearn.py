@@ -571,7 +571,8 @@ def pl_image_path(html):
 #
 # eoas
 #
-def process_question_pl(source_filepath, output_path = None,multifile=False):
+def process_question_pl(source_filepath, output_path = None,multifile=False,
+                        overwrite_json=True):
 
     try:
         pathlib.Path(source_filepath)
@@ -588,6 +589,7 @@ def process_question_pl(source_filepath, output_path = None,multifile=False):
         output_path = pathlib.Path(output_path)
     # Parse the MD file
     if multifile:
+        print("multifile read in eoas_plearn.py")
         parsed_q = read_md_problem_multifile(source_filepath)
         #
         # eoas read from server.py
@@ -613,7 +615,8 @@ def process_question_pl(source_filepath, output_path = None,multifile=False):
     #################################################################################
 
     # Write info.json file
-    write_info_json(output_path, parsed_q)
+    if overwrite_json:
+        write_info_json(output_path, parsed_q)
 
     # Question Preamble
     if parsed_q['body_parts']['preamble']:
