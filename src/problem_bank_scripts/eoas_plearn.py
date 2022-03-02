@@ -707,6 +707,7 @@ def process_question_pl(source_filepath, output_path = None,multifile=False):
 
     # Write server.py file
     if not multifile:
+        print('writing server.py from parsed_q')
         write_server_py(output_path,parsed_q)
 
     # Move image assets
