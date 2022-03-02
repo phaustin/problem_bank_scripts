@@ -706,7 +706,8 @@ def process_question_pl(source_filepath, output_path = None,multifile=False):
     #     print(f"{question_html}", file=qfile)
 
     # Write server.py file
-    write_server_py(output_path,parsed_q)
+    if not multifile:
+        write_server_py(output_path,parsed_q)
 
     # Move image assets
     files_to_copy = parsed_q['header'].get('assets')
